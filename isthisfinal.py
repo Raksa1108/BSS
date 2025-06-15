@@ -5,12 +5,18 @@ import soundfile as sf
 import numpy as np
 import matplotlib.pyplot as plt
 import noisereduce as nr
-import sounddevice as sd
-import wavio
-from asteroid.models import ConvTasNet
-from asteroid.utils import tensors_to_device
 import tempfile
 import os
+
+# Check if running on Streamlit Cloud
+ON_CLOUD = os.environ.get("STREAMLIT_SERVER_HEADLESS") == "1"
+
+if not ON_CLOUD:
+    import sounddevice as sd
+    import wavio
+
+from asteroid.models import ConvTasNet
+from asteroid.utils import tensors_to_device
 
 # Streamlit config
 st.set_page_config(page_title="Real-Time BSS", layout="wide")
@@ -34,15 +40,23 @@ def plot_audio_features(audio, sr, title="Audio"):
     axs[1].set_title(f"{title} - Spectrogram")
     st.pyplot(fig)
 
-# Choose input method
-input_method = st.radio("Select Input Source", ["Upload Audio File", "Record via Microphone"])
+# Input method options
+options = ["Upload Audio File"]
+if not ON_CLOUD:
+    options.append("Record via Microphone")
+
+input_method = st.radio("Select Input Source", options)
 
 # File uploader or recorder
+waveform = None
+sr = None
+
 if input_method == "Upload Audio File":
     uploaded_file = st.file_uploader("Upload a 2-speaker mixed WAV file", type=["wav"])
     if uploaded_file is not None:
         waveform, sr = torchaudio.load(uploaded_file)
-elif input_method == "Record via Microphone":
+
+elif input_method == "Record via Microphone" and not ON_CLOUD:
     duration = st.slider("Recording duration (seconds)", 1, 20, 5)
     if st.button("🎙️ Record Now"):
         st.info("Recording...")
@@ -56,7 +70,7 @@ elif input_method == "Record via Microphone":
         st.audio(temp_path, format="audio/wav")
 
 # Proceed only if waveform is loaded
-if 'waveform' in locals():
+if waveform is not None and sr is not None:
     if waveform.shape[0] > 1:
         waveform = waveform.mean(dim=0, keepdim=True)
 
@@ -66,7 +80,9 @@ if 'waveform' in locals():
         sr = 16000
 
     st.subheader("🎧 Input Mixture")
-    st.audio(sf.write("mixture.wav", waveform.squeeze().numpy(), sr), format="audio/wav")
+    temp_mix = tempfile.mktemp(suffix=".wav")
+    sf.write(temp_mix, waveform.squeeze().numpy(), sr)
+    st.audio(temp_mix, format="audio/wav")
     plot_audio_features(waveform[0].numpy(), sr, "Mixture")
 
     # Separation
@@ -86,23 +102,23 @@ if 'waveform' in locals():
     reduced_src2 = nr.reduce_noise(y=src2, sr=sr)
 
     # Save outputs
-    sf.write("source1_clean.wav", reduced_src1, sr)
-    sf.write("source2_clean.wav", reduced_src2, sr)
+    temp_src1 = tempfile.mktemp(suffix=".wav")
+    temp_src2 = tempfile.mktemp(suffix=".wav")
+    sf.write(temp_src1, reduced_src1, sr)
+    sf.write(temp_src2, reduced_src2, sr)
 
     # Display results
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("**🗣️ Source 1**")
-        st.audio("source1_clean.wav", format="audio/wav")
+        st.audio(temp_src1, format="audio/wav")
         plot_audio_features(reduced_src1, sr, "Source 1")
 
     with col2:
         st.markdown("**🗣️ Source 2**")
-        st.audio("source2_clean.wav", format="audio/wav")
+        st.audio(temp_src2, format="audio/wav")
         plot_audio_features(reduced_src2, sr, "Source 2")
 
     st.success("✅ Source separation and denoising complete!")
-
-
-
-
+else:
+    st.info("Please upload or record an audio file to begin.")
