@@ -8,12 +8,13 @@ import noisereduce as nr
 import tempfile
 import os
 
-# Check if running on Streamlit Cloud
-ON_CLOUD = os.environ.get("STREAMLIT_SERVER_HEADLESS") == "1"
-
-if not ON_CLOUD:
+# Try safe import of sounddevice and wavio
+try:
     import sounddevice as sd
     import wavio
+    HAS_MIC_SUPPORT = True
+except:
+    HAS_MIC_SUPPORT = False
 
 from asteroid.models import ConvTasNet
 from asteroid.utils import tensors_to_device
@@ -42,7 +43,7 @@ def plot_audio_features(audio, sr, title="Audio"):
 
 # Input method options
 options = ["Upload Audio File"]
-if not ON_CLOUD:
+if HAS_MIC_SUPPORT:
     options.append("Record via Microphone")
 
 input_method = st.radio("Select Input Source", options)
@@ -56,7 +57,7 @@ if input_method == "Upload Audio File":
     if uploaded_file is not None:
         waveform, sr = torchaudio.load(uploaded_file)
 
-elif input_method == "Record via Microphone" and not ON_CLOUD:
+elif input_method == "Record via Microphone" and HAS_MIC_SUPPORT:
     duration = st.slider("Recording duration (seconds)", 1, 20, 5)
     if st.button("🎙️ Record Now"):
         st.info("Recording...")
