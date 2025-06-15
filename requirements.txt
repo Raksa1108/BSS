@@ -1,0 +1,10 @@
+streamlit
+torch
+torchaudio
+soundfile
+numpy
+matplotlib
+noisereduce
+sounddevice
+wavio
+asteroid
