@@ -8,13 +8,13 @@ import noisereduce as nr
 import tempfile
 import os
 
-# Try safe import of sounddevice and wavio
+# Try importing microphone libraries
 try:
     import sounddevice as sd
     import wavio
-    HAS_MIC_SUPPORT = True
+    HAS_MIC = True
 except:
-    HAS_MIC_SUPPORT = False
+    HAS_MIC = False
 
 from asteroid.models import ConvTasNet
 from asteroid.utils import tensors_to_device
@@ -32,7 +32,7 @@ def load_model():
 
 model = load_model()
 
-# Plotting
+# Plot audio waveform and spectrogram
 def plot_audio_features(audio, sr, title="Audio"):
     fig, axs = plt.subplots(2, 1, figsize=(8, 4))
     axs[0].plot(audio)
@@ -41,23 +41,24 @@ def plot_audio_features(audio, sr, title="Audio"):
     axs[1].set_title(f"{title} - Spectrogram")
     st.pyplot(fig)
 
-# Input method options
+# Input method
 options = ["Upload Audio File"]
-if HAS_MIC_SUPPORT:
+if HAS_MIC:
     options.append("Record via Microphone")
 
 input_method = st.radio("Select Input Source", options)
 
-# File uploader or recorder
 waveform = None
 sr = None
 
+# Upload
 if input_method == "Upload Audio File":
     uploaded_file = st.file_uploader("Upload a 2-speaker mixed WAV file", type=["wav"])
     if uploaded_file is not None:
         waveform, sr = torchaudio.load(uploaded_file)
 
-elif input_method == "Record via Microphone" and HAS_MIC_SUPPORT:
+# Record (only if sounddevice available)
+elif input_method == "Record via Microphone" and HAS_MIC:
     duration = st.slider("Recording duration (seconds)", 1, 20, 5)
     if st.button("🎙️ Record Now"):
         st.info("Recording...")
@@ -70,7 +71,7 @@ elif input_method == "Record via Microphone" and HAS_MIC_SUPPORT:
         st.success("Recording complete.")
         st.audio(temp_path, format="audio/wav")
 
-# Proceed only if waveform is loaded
+# Main processing
 if waveform is not None and sr is not None:
     if waveform.shape[0] > 1:
         waveform = waveform.mean(dim=0, keepdim=True)
@@ -86,7 +87,7 @@ if waveform is not None and sr is not None:
     st.audio(temp_mix, format="audio/wav")
     plot_audio_features(waveform[0].numpy(), sr, "Mixture")
 
-    # Separation
+    # Separate sources
     with st.spinner("Separating sources..."):
         input_tensor = waveform.unsqueeze(0)
         input_tensor = tensors_to_device(input_tensor, device="cpu")
@@ -94,7 +95,6 @@ if waveform is not None and sr is not None:
         with torch.no_grad():
             separated = model.separate(input_tensor)
 
-    # Extract and noise reduce
     src1 = separated[0, 0].cpu().numpy()
     src2 = separated[0, 1].cpu().numpy()
 
@@ -108,7 +108,7 @@ if waveform is not None and sr is not None:
     sf.write(temp_src1, reduced_src1, sr)
     sf.write(temp_src2, reduced_src2, sr)
 
-    # Display results
+    # Output results
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("**🗣️ Source 1**")
@@ -121,5 +121,6 @@ if waveform is not None and sr is not None:
         plot_audio_features(reduced_src2, sr, "Source 2")
 
     st.success("✅ Source separation and denoising complete!")
+
 else:
     st.info("Please upload or record an audio file to begin.")
